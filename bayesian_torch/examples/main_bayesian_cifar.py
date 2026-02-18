@@ -15,16 +15,35 @@ import torchvision.datasets as datasets
 import bayesian_torch.models.bayesian.resnet_variational as resnet
 import numpy as np
 
+
+##  Extract model names from bayesian-torch library.
+
 model_names = sorted(
     name for name in resnet.__dict__
     if name.islower() and not name.startswith("__")
     and name.startswith("resnet") and callable(resnet.__dict__[name]))
 
+
+##  Quantify the training and test set numbers.
+
 print(model_names)
 len_trainset = 50000
 len_testset = 10000
 
+##  CIFAR-10: 50000 training, 10000 testing.
+##            6000 images per class.
+
+##  CIFAR-100: 50000 training, 10000 testing.
+##             600 images per class.
+
+
+##  Argument parser designer for the CIFAR10 dataset.
+
 parser = argparse.ArgumentParser(description='CIFAR10')
+
+
+##  Resnet is a PyTorch model.
+
 parser.add_argument('--arch',
                     '-a',
                     metavar='ARCH',
@@ -32,12 +51,21 @@ parser.add_argument('--arch',
                     choices=model_names,
                     help='model architecture: ' + ' | '.join(model_names) +
                     ' (default: resnet20)')
+
+
+##  Subprocesses to use for data loading:
+##  https://docs.pytorch.org/docs/stable/data.html#torch.utils.data.DataLoader
+
 parser.add_argument('-j',
                     '--workers',
                     default=8,
                     type=int,
                     metavar='N',
                     help='number of data loading workers (default: 8)')
+
+
+##  Training iterations.
+
 parser.add_argument('--epochs',
                     default=200,
                     type=int,
@@ -48,23 +76,43 @@ parser.add_argument('--start-epoch',
                     type=int,
                     metavar='N',
                     help='manual epoch number (useful on restarts)')
+
+
+##  Quantity of samples per training batch.
+##  https://docs.pytorch.org/docs/stable/data.html
+
 parser.add_argument('-b',
                     '--batch-size',
                     default=128,
                     type=int,
                     metavar='N',
                     help='mini-batch size (default: 128)')
+
+
+##  Hyperparameter, frequently depicted as alpha in algebra.
+##  Rate at which gradient descent occurs.
+
 parser.add_argument('--lr',
                     '--learning-rate',
                     default=0.001,
                     type=float,
                     metavar='LR',
                     help='initial learning rate')
+
+
+##  Not covered by course; accelerates learning rate somehow.
+##  https://www.cs.toronto.edu/%7Ehinton/absps/momentum.pdf
+
 parser.add_argument('--momentum',
                     default=0.9,
                     type=float,
                     metavar='M',
                     help='momentum')
+
+
+##  Similar to L2 regularisation, adds a value to the loss function to
+##  prevent overfitting.
+
 parser.add_argument('--weight-decay',
                     '--wd',
                     default=5e-4,
@@ -77,53 +125,97 @@ parser.add_argument('--print-freq',
                     type=int,
                     metavar='N',
                     help='print frequency (default: 20)')
+
+
+##  A checkpoint is a state of the set of model parameters, which is
+##  reached via training (parameters may be iterated to any value).
+
 parser.add_argument('--resume',
                     default='',
                     type=str,
                     metavar='PATH',
                     help='path to latest checkpoint (default: none)')
+
+
+##  The validation stage is about testing if the hyperparameters of
+##  the model have let to an overfit.
+
 parser.add_argument('-e',
                     '--evaluate',
                     dest='evaluate',
                     action='store_true',
                     help='evaluate model on validation set')
+
+
+##  Probably: load model weights.
+
 parser.add_argument('--pretrained',
                     dest='pretrained',
                     action='store_true',
                     help='use pre-trained model')
+
+
+##  Probably: store weights as Float16.
+
 parser.add_argument('--half',
                     dest='half',
                     action='store_true',
                     help='use half-precision(16-bit) ')
+
+
+##  Directory for storing weights, common activity when training
+##  models.
+
 parser.add_argument('--save-dir',
                     dest='save_dir',
                     help='The directory used to save the trained models',
                     default='./checkpoint/bayesian',
                     type=str)
+
+
+##  Store state of weights are n training iterations.
+
 parser.add_argument(
     '--save-every',
     dest='save_every',
     help='Saves checkpoints at every specified number of epochs',
     type=int,
     default=10)
+
+
+##  Toggle between training and testing mode.
+
 parser.add_argument('--mode', type=str, required=True, help='train | test')
+
+
+##  Samples of weights are drawn via Monte Carlo from the
+##  approximation function of the posterior; this is seemingly how the
+##  approximation function is iterated.
+
 parser.add_argument(
     '--num_monte_carlo',
     type=int,
     default=20,
     metavar='N',
     help='number of Monte Carlo samples to be drawn during inference')
+
 parser.add_argument('--num_mc',
                     type=int,
                     default=1,
                     metavar='N',
                     help='number of Monte Carlo runs during training')
+
+
+##  Library from TensorFlow for visualising training (e.g. loss
+##  function output changes).
+
 parser.add_argument(
     '--tensorboard',
     type=bool,
     default=True,
     metavar='N',
     help='use tensorboard for logging and visualization of training progress')
+
 parser.add_argument(
     '--log_dir',
     type=str,
@@ -133,6 +225,14 @@ parser.add_argument(
 
 best_prec1 = 0
 
+
+##  MOPED is a means of selecting the priors.
+
+##  Surrogate posterior is the approximation function of the posterior
+##  (surrogate means substitution).
+
+##  Note that this function is not actually called within this file
+##  (???).
 
 def MOPED_layer(layer, det_layer, delta):
     """
@@ -190,10 +290,15 @@ def MOPED_layer(layer, det_layer, delta):
 def main():
     global args, best_prec1
     args = parser.parse_args()
-
+ 
     # Check the save_dir exists or not
     if not os.path.exists(args.save_dir):
         os.makedirs(args.save_dir)
+
+    ##  DataParallel duplicates the model and runs forward and
+    ##  backwards propagation in parallel, for multiple training data
+    ##  instances.
+    ##  https://docs.pytorch.org/docs/stable/generated/torch.nn.DataParallel.html
 
     model = torch.nn.DataParallel(resnet.__dict__[args.arch]())
     if torch.cuda.is_available():
@@ -214,7 +319,14 @@ def main():
         else:
             print("=> no checkpoint found at '{}'".format(args.resume))
 
+
+    ##  Instruct Nvidia's benchmarking algorithms to run tests to
+    ##  deduce most efficient means of handling specific model.
+    ##  Provies a modest speedup, allegedly.
+            
     cudnn.benchmark = True
+
+    ##  TensorBoard is a visualisation tool for ML.
 
     tb_writer = None
     if args.tensorboard:
