@@ -64,7 +64,7 @@ parser.add_argument('-j',
                     help='number of data loading workers (default: 8)')
 
 
-##  Training iterations.
+##  Quantity of times full dataset is run through model.
 
 parser.add_argument('--epochs',
                     default=200,
@@ -231,8 +231,9 @@ best_prec1 = 0
 ##  Surrogate posterior is the approximation function of the posterior
 ##  (surrogate means substitution).
 
-##  Note that this function is not actually called within this file
-##  (???).
+##  Note that this function is only called in the _dnn2bnn equivalent
+##  version of this file, and involves using a trained DNN as a
+##  starting point.
 
 def MOPED_layer(layer, det_layer, delta):
     """
@@ -335,8 +336,14 @@ def main():
             os.makedirs(logger_dir)
         tb_writer = SummaryWriter(logger_dir)
 
+    ##  Setup overlay for modifying the training data. This is
+    ##  equivalent to the classical statistics equation:
+    ##  z = (x - mu) / sigma
+
     normalize = transforms.Normalize(mean=[0.4914, 0.4822, 0.4465],
                                      std=[0.2023, 0.1994, 0.2010])
+
+    ##  Load CIFAR10 dataset, making some random adjustments.
 
     train_loader = torch.utils.data.DataLoader(datasets.CIFAR10(
         root='./data',
@@ -353,6 +360,8 @@ def main():
                                                num_workers=args.workers,
                                                pin_memory=True)
 
+    ##  Load CIFAR10 dataset, for validation.
+
     val_loader = torch.utils.data.DataLoader(datasets.CIFAR10(
         root='./data',
         train=False,
@@ -368,26 +377,38 @@ def main():
     if not os.path.exists(args.save_dir):
         os.makedirs(args.save_dir)
 
+    ##  Setup loss function.
+
     if torch.cuda.is_available():
         criterion = nn.CrossEntropyLoss().cuda()
     else:
         criterion = nn.CrossEntropyLoss().cpu()
 
+    ##  Set FP16 data types.
+
     if args.half:
         model.half()
         criterion.half()
+
+    ##  Set learning rate.
 
     if args.arch in ['resnet110']:
         for param_group in optimizer.param_groups:
             param_group['lr'] = args.lr * 0.1
 
+    ##  Validate dataset, model, and loss function.
+
     if args.evaluate:
         validate(val_loader, model, criterion)
         return
 
+    
+
     if args.mode == 'train':
 
         for epoch in range(args.start_epoch, args.epochs):
+
+            ##  Set learning rate based on quantity of iterations.
 
             lr = args.lr
             if (epoch >= 80 and epoch < 120):
@@ -399,18 +420,29 @@ def main():
             elif (epoch >= 180):
                 lr = 0.0005 * args.lr
 
+            ##  Adam algorithm.
+
             optimizer = torch.optim.Adam(model.parameters(), lr)
+
+            ##  Train model using full dataset.
 
             # train for one epoch
             print('current lr {:.5e}'.format(optimizer.param_groups[0]['lr']))
             train(args, train_loader, model, criterion, optimizer, epoch,
                   tb_writer)
 
+            ##  Validate model (after training).
+
             prec1 = validate(args, val_loader, model, criterion, epoch,
                              tb_writer)
 
+            ##  Compare to preloaded checkpoint value or 0.
+
             is_best = prec1 > best_prec1
             best_prec1 = max(prec1, best_prec1)
+
+            ##  If the latest epoch led to best validate() output,
+            ##  store checkpoint.
 
             if is_best:
                 save_checkpoint(
@@ -423,6 +455,9 @@ def main():
                     filename=os.path.join(
                         args.save_dir,
                         'bayesian_{}_cifar.pth'.format(args.arch)))
+
+
+    ##  If testing, load from checkpoint, run evaluate().
 
     elif args.mode == 'test':
         checkpoint_file = args.save_dir + '/bayesian_{}_cifar.pth'.format(
@@ -451,11 +486,19 @@ def train(args,
     # switch to train mode
     model.train()
 
+    ##  Begin timer.
+
     end = time.time()
+
+    ##  Iterate through training dataset.
+    
     for i, (input, target) in enumerate(train_loader):
 
         # measure data loading time
         data_time.update(time.time() - end)
+
+        ##  Associate training data (x, y) tuple with hardware
+        ##  available.
 
         if torch.cuda.is_available():
             target = target.cuda()
@@ -466,16 +509,34 @@ def train(args,
             input_var = input.cpu()
             target_var = target
 
+        ##  Setup FP16 number data type.
+
         if args.half:
             input_var = input_var.half()
 
         # compute output
         output_ = []
         kl_ = []
+
+        ##  Begin MC iterations.
+        
         for mc_run in range(args.num_mc):
+
+            ##  Run data through model via model's forward(), get
+            ##  output.
+            
             output, kl = model(input_var)
+
+            ##  Build list of all output.
+            
             output_.append(output)
+
+            ##  Build list of all KL loss.
+            
             kl_.append(kl)
+
+        ##  Find mean of model output and KL loss.
+            
         output = torch.mean(torch.stack(output_), dim=0)
         kl = torch.mean(torch.stack(kl_), dim=0)
         cross_entropy_loss = criterion(output, target_var)
