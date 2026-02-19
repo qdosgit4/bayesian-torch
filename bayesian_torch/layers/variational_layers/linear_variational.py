@@ -87,6 +87,11 @@ class LinearReparameterization(BaseVariationalLayer_):
 
         self.mu_weight = Parameter(torch.Tensor(out_features, in_features))
         self.rho_weight = Parameter(torch.Tensor(out_features, in_features))
+
+        ##  Register buffer: "data that is not a model parameter but
+        ##  that is part of the module's state". E.g. during batch
+        ##  normalisation.
+        
         self.register_buffer('eps_weight',
                              torch.Tensor(out_features, in_features),
                              persistent=False)
@@ -96,6 +101,7 @@ class LinearReparameterization(BaseVariationalLayer_):
         self.register_buffer('prior_weight_sigma',
                              torch.Tensor(out_features, in_features),
                              persistent=False)
+
         if bias:
             self.mu_bias = Parameter(torch.Tensor(out_features))
             self.rho_bias = Parameter(torch.Tensor(out_features))
@@ -121,10 +127,17 @@ class LinearReparameterization(BaseVariationalLayer_):
         self.quant_prepare=False
     
     def prepare(self):
+
+        ##  Quantization regards converting continuous variables to a
+        ##  set of discrete variables. This introduces some quantities
+        ##  of errors. Qconfig describes how to do so. Minmax involves
+        ##  taking a tensor and extracting elements.
+
         self.qint_quant = nn.ModuleList([torch.quantization.QuantStub(
                                          QConfig(weight=MinMaxObserver.with_args(dtype=torch.qint8, qscheme=torch.per_tensor_symmetric), activation=MinMaxObserver.with_args(dtype=torch.qint8,qscheme=torch.per_tensor_symmetric))) for _ in range(5)])
         self.quint_quant = nn.ModuleList([torch.quantization.QuantStub(
                                          QConfig(weight=MinMaxObserver.with_args(dtype=torch.quint8), activation=MinMaxObserver.with_args(dtype=torch.quint8))) for _ in range(2)])
+        
         self.dequant = torch.quantization.DeQuantStub()
         self.quant_prepare=True
 
@@ -141,39 +154,71 @@ class LinearReparameterization(BaseVariationalLayer_):
             self.rho_bias.data.normal_(mean=self.posterior_rho_init[0],
                                        std=0.1)
 
+    ##  Find natural logarithm of exponent of rho weight.
+
     def kl_loss(self):
         sigma_weight = torch.log1p(torch.exp(self.rho_weight))
+
+        ##  Find KL divergence between prior distribution and current
+        ##  distribution.
+        
         kl = self.kl_div(
             self.mu_weight,
             sigma_weight,
             self.prior_weight_mu,
             self.prior_weight_sigma)
+
+        ##  Potentially also involve bias parameters in KL divergence
+        ##  loss score.
+        
         if self.mu_bias is not None:
             sigma_bias = torch.log1p(torch.exp(self.rho_bias))
             kl += self.kl_div(self.mu_bias, sigma_bias,
                               self.prior_bias_mu, self.prior_bias_sigma)
         return kl
 
+    
     def forward(self, input, return_kl=True):
+
         if self.dnn_to_bnn_flag:
             return_kl = False
+            
         sigma_weight = torch.log1p(torch.exp(self.rho_weight))
+
+        ##  Generate epsilon weight via normal distribution - see KL
+        ##  loss function, original Bayes-by-backprop paper.
+        
         eps_weight = self.eps_weight.data.normal_()
+
+        ##  Generate weight via sigma and epsilon weights.
+        
         tmp_result = sigma_weight * eps_weight
         weight = self.mu_weight + tmp_result
 
-
         if return_kl:
+
+            ##  Find difference between newly generated approximation
+            ##  weight function and prior weight function.
+            
             kl_weight = self.kl_div(self.mu_weight, sigma_weight,
                                     self.prior_weight_mu, self.prior_weight_sigma)
         bias = None
 
         if self.mu_bias is not None:
+
+            ##  Generate bias parameter via epsilon.
+            
             sigma_bias = torch.log1p(torch.exp(self.rho_bias))
             bias = self.mu_bias + (sigma_bias * self.eps_bias.data.normal_())
+
+            ##  Generate KL loss value related to current bias
+            ##  approximation distribution, prior distribution.
+
             if return_kl:
                 kl_bias = self.kl_div(self.mu_bias, sigma_bias, self.prior_bias_mu,
                                       self.prior_bias_sigma)
+
+        ##  Run input through standard linear layer.
 
         out = F.linear(input, weight, bias)
 
@@ -188,7 +233,6 @@ class LinearReparameterization(BaseVariationalLayer_):
             eps_weight = self.qint_quant[2](eps_weight) # random variable
             tmp_result =self.qint_quant[3](tmp_result) # multiply activation
             weight = self.qint_quant[4](weight) # add activatation
-
 
         if return_kl:
             if self.mu_bias is not None:

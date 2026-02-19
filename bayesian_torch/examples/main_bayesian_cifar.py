@@ -30,8 +30,8 @@ print(model_names)
 len_trainset = 50000
 len_testset = 10000
 
-##  CIFAR-10: 50000 training, 10000 testing.
-##            6000 images per class.
+##  CIFAR-10:  50000 training, 10000 testing.
+##             6000 images per class.
 
 ##  CIFAR-100: 50000 training, 10000 testing.
 ##             600 images per class.
@@ -753,8 +753,6 @@ def evaluate(args, model, val_loader):
         
         Y_pred = torch.argmax(pred_mean, axis=1)
 
-        ##  Quantify 
-        
         print('Test accuracy:',
               (Y_pred.data.cpu().numpy() == labels.data.cpu().numpy()).mean() *
               100)
