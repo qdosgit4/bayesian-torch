@@ -42,7 +42,7 @@ len_testset = 10000
 parser = argparse.ArgumentParser(description='CIFAR10')
 
 
-##  Resnet is a PyTorch model.
+##  Choose resnet model.
 
 parser.add_argument('--arch',
                     '-a',
@@ -536,22 +536,50 @@ def train(args,
             kl_.append(kl)
 
         ##  Find mean of model output and KL loss.
+
+        ##  Note that torch.mean only outputs one value, but in tensor
+        ##  format.
             
         output = torch.mean(torch.stack(output_), dim=0)
         kl = torch.mean(torch.stack(kl_), dim=0)
+
+        ##  Compare model output and target using cross entropy loss.
+        
         cross_entropy_loss = criterion(output, target_var)
-        scaled_kl = kl / args.batch_size 
-        #ELBO loss
+        scaled_kl = kl / args.batch_size
+
+        ##  Summate loss function outputs (allegedly ELBO).
+        ##  Note that `loss` is a tensor object.
+        
         loss = cross_entropy_loss + scaled_kl
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
+
+        ##  The graph (as in graph theory, whereby a function is
+        ##  treated as a graph) is differentiated via the chain rule.
+        ##  Results are stored in the leaves.
+        ##  Note that `loss` is a tensor object.
+        
         loss.backward()
+
+        ##  Run Adam algorithm, which is relevant to stochastic loss
+        ##  functions (i.e. MC variational inference).
+        
+        ##  The Adam algorithm ultimately uses the following to
+        ##  choose the next weight set:
+        ##    - change in output of loss function in respect to
+        ##      previous set
+        ##    - hyperparameters beta_1, beta_2
+        
         optimizer.step()
+
+        ##  Convert to simpler data type.
 
         output = output.float()
         loss = loss.float()
         # measure accuracy and record loss
+        
         prec1 = accuracy(output.data, target)[0]
         losses.update(loss.item(), input.size(0))
         top1.update(prec1.item(), input.size(0))
@@ -591,6 +619,9 @@ def validate(args, val_loader, model, criterion, epoch, tb_writer=None):
     # switch to evaluate mode
     model.eval()
 
+    ##  Disable gradient calculation (backward() will become
+    ##  unavailable).
+
     end = time.time()
     with torch.no_grad():
         for i, (input, target) in enumerate(val_loader):
@@ -606,6 +637,9 @@ def validate(args, val_loader, model, criterion, epoch, tb_writer=None):
             if args.half:
                 input_var = input_var.half()
 
+            ##  Quantity of MC iterations for selecting new set of
+            ##  weights.
+
             # compute output
             output_ = []
             kl_ = []
@@ -613,6 +647,9 @@ def validate(args, val_loader, model, criterion, epoch, tb_writer=None):
                 output, kl = model(input_var)
                 output_.append(output)
                 kl_.append(kl)
+
+            ##  Equivalent process to training.
+                
             output = torch.mean(torch.stack(output_), dim=0)
             kl = torch.mean(torch.stack(kl_), dim=0)
             cross_entropy_loss = criterion(output, target_var)
@@ -653,6 +690,8 @@ def validate(args, val_loader, model, criterion, epoch, tb_writer=None):
 
     print(' * Prec@1 {top1.avg:.3f}'.format(top1=top1))
 
+    ##  Return...?
+
     return top1.avg
 
 
@@ -663,6 +702,9 @@ def evaluate(args, model, val_loader):
     output_list = []
     labels_list = []
     model.eval()
+
+    ##  Disable gradient calculation.
+    
     with torch.no_grad():
         begin = time.time()
         for data, target in val_loader:
@@ -681,14 +723,38 @@ def evaluate(args, model, val_loader):
         print("inference throughput: ", len_testset / (end - begin),
               " images/s")
 
+        ##  Build new tensor.
+
         output = torch.stack(output_list)
+
+        ##  Adjust arrangement.
+        
         output = output.permute(1, 0, 2, 3)
+
+        ##  Create contiguous piece of memory for tensor, adjust
+        ##  shape.
+        
         output = output.contiguous().view(args.num_monte_carlo, len_testset,
                                           -1)
+
+        ##  Run softmax function.
+        
         output = torch.nn.functional.softmax(output, dim=2)
+
+        ##  Concatenate labels.
+        
         labels = torch.cat(labels_list)
+
+        ##  Calculate mean.
+        
         pred_mean = output.mean(dim=0)
+
+        ##  Find maximum element within pred_mean.
+        
         Y_pred = torch.argmax(pred_mean, axis=1)
+
+        ##  Quantify 
+        
         print('Test accuracy:',
               (Y_pred.data.cpu().numpy() == labels.data.cpu().numpy()).mean() *
               100)
