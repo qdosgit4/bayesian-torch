@@ -539,18 +539,18 @@ def train(args,
 
         ##  Note that torch.mean only outputs one value, but in tensor
         ##  format.
-            
+
         output = torch.mean(torch.stack(output_), dim=0)
         kl = torch.mean(torch.stack(kl_), dim=0)
 
         ##  Compare model output and target using cross entropy loss.
-        
+
         cross_entropy_loss = criterion(output, target_var)
         scaled_kl = kl / args.batch_size
 
         ##  Summate loss function outputs (allegedly ELBO).
         ##  Note that `loss` is a tensor object.
-        
+
         loss = cross_entropy_loss + scaled_kl
 
         # compute gradient and do SGD step
@@ -560,17 +560,19 @@ def train(args,
         ##  treated as a graph) is differentiated via the chain rule.
         ##  Results are stored in the leaves.
         ##  Note that `loss` is a tensor object.
-        
+
         loss.backward()
 
         ##  Run Adam algorithm, which is relevant to stochastic loss
         ##  functions (i.e. MC variational inference).
-        
+
         ##  The Adam algorithm ultimately uses the following to
         ##  choose the next weight set:
         ##    - change in output of loss function in respect to
         ##      previous set
         ##    - hyperparameters beta_1, beta_2
+
+        ##  https://docs.pytorch.org/docs/stable/generated/torch.optim.Adam.html
         
         optimizer.step()
 
@@ -579,7 +581,7 @@ def train(args,
         output = output.float()
         loss = loss.float()
         # measure accuracy and record loss
-        
+
         prec1 = accuracy(output.data, target)[0]
         losses.update(loss.item(), input.size(0))
         top1.update(prec1.item(), input.size(0))
