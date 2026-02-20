@@ -71,6 +71,7 @@ parser.add_argument('--epochs',
                     type=int,
                     metavar='N',
                     help='number of total epochs to run')
+
 parser.add_argument('--start-epoch',
                     default=0,
                     type=int,
@@ -119,6 +120,7 @@ parser.add_argument('--weight-decay',
                     type=float,
                     metavar='W',
                     help='weight decay (default: 5e-4)')
+
 parser.add_argument('--print-freq',
                     '-p',
                     default=50,
@@ -482,6 +484,9 @@ def train(args,
     data_time = AverageMeter()
     losses = AverageMeter()
     top1 = AverageMeter()
+
+    ##  Note that this function is called multiples times, such that
+    ##  the weights are gradually updated.
 
     # switch to train mode
     model.train()
