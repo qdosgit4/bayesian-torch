@@ -137,7 +137,7 @@ class ResNet(nn.Module):
             posterior_mu_init=posterior_mu_init,
             posterior_rho_init=posterior_rho_init,
         )
-
+x
         self.apply(_weights_init)
 
     def _make_layer(self, block, planes, num_blocks, stride):
