@@ -426,6 +426,14 @@ def main():
 
             optimizer = torch.optim.Adam(model.parameters(), lr)
 
+            print('model params:', model.parameters())
+
+            print('param groups', optimizer.param_groups)
+
+            # print('param groups 0', optimizer.param_groups[0])
+
+            # print(optimizer.param_groups[0]['betas'])
+
             ##  Train model using full dataset.
 
             # train for one epoch
@@ -553,6 +561,12 @@ def train(args,
         cross_entropy_loss = criterion(output, target_var)
         scaled_kl = kl / args.batch_size
 
+        ##  Note that the KL loss is always the same during training,
+        ##  which means the probability distribution parameters are
+        ##  not updated.
+
+        print('scaled_kl', scaled_kl)
+            
         ##  Summate loss function outputs (allegedly ELBO).
         ##  Note that `loss` is a tensor object.
 
@@ -578,9 +592,11 @@ def train(args,
         ##    - hyperparameters beta_1, beta_2
 
         ##  https://docs.pytorch.org/docs/stable/generated/torch.optim.Adam.html
-        
+
         optimizer.step()
 
+        # print(optimizer)
+        
         ##  Convert to simpler data type.
 
         output = output.float()
@@ -662,6 +678,9 @@ def validate(args, val_loader, model, criterion, epoch, tb_writer=None):
             cross_entropy_loss = criterion(output, target_var)
             scaled_kl = kl / args.batch_size 
             #ELBO loss
+
+            print('scaled_kl', scaled_kl)
+            
             loss = cross_entropy_loss + scaled_kl
 
             output = output.float()
